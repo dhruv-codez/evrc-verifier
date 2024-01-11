@@ -168,7 +168,7 @@ export enum EnvironmentApis {
 
 export const API_URLS = new Map<EnvironmentApis, string>([
   [EnvironmentApis.Production, 'https://product-api.everycred.com'],
-  [EnvironmentApis.Staging, 'https://staging.everycred.com'],
+  [EnvironmentApis.Staging, 'https://service-api.everycred.com'],
   [EnvironmentApis.Development, 'https://evrc-service.everycred.com'],
   [EnvironmentApis.Local, 'https://evrc-service.everycred.com'],
 ]);
