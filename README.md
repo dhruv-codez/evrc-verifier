@@ -2,7 +2,7 @@
 
 # EveryCRED Verifier JS :lock:
 
-Version: 1.0.2 :bookmark_tabs:
+Version: 1.0.0 :bookmark_tabs:
 
 EveryCRED Verifier JS is a custom verifier designed to verify EveryCRED credentials according to the W3C credentials standard.
 
@@ -19,6 +19,7 @@ npm install everycred-verifier-js
 The EveryCRED Verifier JS follows the following steps to validate credentials:
 
 1. **Validators** :white_check_mark:: Check the authenticity and integrity of the credential.
+
    - **Authenticity checks** :closed_lock_with_key:: Verify the authenticity of the credential.
    - **Integrity Checks** :closed_lock_with_key:: Check the integrity of the credential.
    - **Issuer check** :passport_control:: Validate the issuer of the credential.
@@ -37,6 +38,7 @@ The EveryCRED Verifier JS follows the following steps to validate credentials:
 The verifier performs detailed verification steps on the package:
 
 1. **Validator** :white_check_mark:: Check the validity of the credential fields.
+
    - **type** :heavy_check_mark:: Verify if the "type" field exists and supports the "VerifiableCredential" type.
    - **@context** :heavy_check_mark:: Check the existence and validity of the "@context" field.
    - **ID (Identifier)** :heavy_check_mark:: Verify the existence of the "id" field.
@@ -58,15 +60,17 @@ The verifier performs detailed verification steps on the package:
    - **IssuanceDate** :heavy_check_mark:: Check the existence of the "issuanceDate" field.
 
 2. **Checksum Match (Hash Comparison)** :arrows_clockwise:: Compare hashes to ensure the integrity of the credential.
+
    - **Note**: For the first version, only "MerkleProof2019" is supported.
    - Decode "proofValue" and extract signature details.
-      - There are two algorithms to decode the "proofValue":
-          - First, using **MerkleProof2019** algorithm. This will be used for the previously issued credentials.
-          - Second using **Advanced Encryption Standard(AES)** algorithm. This will be used for the new credentials.
-              - Below is the details for decoding the data for AES algorithm:
-                  - **AES_128_IV** and **AES_128_KEY** will be used to decode the **proofValue**. You can find this data in the **proof** field.
-                  - You'll have to pass the AES encryption KEY and IV parsed into the UTF-8 format to ensure it's in the correct encoding for decryption.
-                  - The decryption mode used for encryption is Cipher Block Chaining (CBC), which is a common mode for AES encryption.
+
+     - There are two algorithms to decode the "proofValue":
+       - First, using **MerkleProof2019** algorithm. This will be used for the previously issued credentials.
+       - Second using **Advanced Encryption Standard(AES)** algorithm. This will be used for the new credentials.
+         - Below is the details for decoding the data for AES algorithm:
+           - **AES_128_IV** and **AES_128_KEY** will be used to decode the **proofValue**. You can find this data in the **proof** field.
+           - You'll have to pass the AES encryption KEY and IV parsed into the UTF-8 format to ensure it's in the correct encoding for decryption.
+           - The decryption mode used for encryption is Cipher Block Chaining (CBC), which is a common mode for AES encryption.
 
    - Validate the existence of the "anchors" keyword with valid data.
    - Ensure that the following key fields exist in your credentials:
@@ -76,6 +80,7 @@ The verifier performs detailed verification steps on the package:
      - "anchors"
    - Separate the transaction ID and blink value.
    - Apply chain condition and call the corresponding API:
+
      - EthereumMainnet
      - EthereumRopsten
      - EthereumSepolia
@@ -100,4 +105,4 @@ The verifier performs detailed verification steps on the package:
 
 ## Package Notes :memo:
 
-Version 1.0.2 of the EveryCRED Verifier JS to verify EveryCRED credentials according to the W3C credentials standard.
+Version 1.0.0 of the EveryCRED Verifier JS to verify EveryCRED credentials according to the W3C credentials standard.
