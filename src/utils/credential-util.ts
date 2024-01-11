@@ -62,7 +62,7 @@ export async function getDataFromAPI(url: string, options?: any): Promise<any> {
     const response = isEmpty(options) ? await fetch(url) : await fetch(url, options);
     return await response.json();
   } catch (err) {
-    console.log("response >> ", err);
+    console.error("response >> ", err);
     logger(err, "error");
     throw err;
   }
