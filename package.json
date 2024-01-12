@@ -1,6 +1,6 @@
 {
   "name": "evrc-verifier",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "A custom verifier to verify W3C verifiable credentials.",
   "keywords": [
     "credentials",
