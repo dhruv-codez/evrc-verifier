@@ -6,10 +6,13 @@ import {
 } from "../constants/common";
 import { Messages } from "../constants/messages";
 import { Stages } from '../constants/stages';
+import { ResponseMessage } from '../models/common.model';
 import {
   deepCloneData,
+  formatCustomDate,
   getDataFromKey,
   isDateExpired,
+  isFutureDate,
   isKeyPresent
 } from "../utils/credential-util";
 import { sleep } from '../utils/sleep';
@@ -42,7 +45,7 @@ export class RevocationStatusCheck {
     revocationListData: any,
     credentialData: any,
     issuerProfileData: any
-  ): Promise<{ message: string; status: boolean; }> {
+  ): Promise<ResponseMessage> {
     this.credential = deepCloneData(credentialData);
     this.issuerProfileData = deepCloneData(issuerProfileData);
     this.revocationListData = deepCloneData(revocationListData);
@@ -63,12 +66,13 @@ export class RevocationStatusCheck {
    * @returns a Promise that resolves to a boolean value.
    */
   private async statusRevocationCheck(): Promise<boolean> {
-    return (await this.checkRevocationContext()).status &&
+    return ((await this.checkRevocationContext()).status &&
       this.checkRevocationType().status &&
       this.checkRevocationID().status &&
       (await this.checkRevocationIssuer()).status &&
       this.checkRevocationRevokedAssertions().status &&
-      (await this.checkValidUntilDate()).status;
+      (await this.checkValidFromDate()).status &&
+      (await this.checkValidUntilDate()).status);
   }
 
   /**
@@ -77,7 +81,7 @@ export class RevocationStatusCheck {
    * @returns an object with two properties: "message" and "status". The "message" property contains a
    * string value, and the "status" property contains a boolean value.
    */
-  private async checkRevocationContext(): Promise<{ message: string; status: boolean; }> {
+  private async checkRevocationContext(): Promise<ResponseMessage> {
     await sleep(250);
 
     if (
@@ -103,7 +107,7 @@ export class RevocationStatusCheck {
    * @returns an object with two properties: "message" and "status". The "message" property is a string
    * and the "status" property is a boolean.
    */
-  private checkRevocationType(): { message: string; status: boolean; } {
+  private checkRevocationType(): ResponseMessage {
     if (isKeyPresent(this.credential, REVOCATION_STATUS_CHECK_KEYS.type)) {
       let typeData: string[] = getDataFromKey(
         this.revocationListData,
@@ -126,7 +130,7 @@ export class RevocationStatusCheck {
    * @returns an object with two properties: "message" and "status". The "message" property is a string
    * and the "status" property is a boolean.
    */
-  private checkRevocationID(): { message: string; status: boolean; } {
+  private checkRevocationID(): ResponseMessage {
     if (isKeyPresent(this.credential, REVOCATION_STATUS_CHECK_KEYS.id)) {
       let idData = getDataFromKey(
         this.revocationListData,
@@ -153,7 +157,7 @@ export class RevocationStatusCheck {
    * @returns an object with two properties: "message" and "status". The "message" property contains a
    * string message, and the "status" property contains a boolean value.
    */
-  private async checkRevocationIssuer(): Promise<{ message: string; status: boolean; }> {
+  private async checkRevocationIssuer(): Promise<ResponseMessage> {
     await sleep(350);
 
     if (isKeyPresent(this.credential, REVOCATION_STATUS_CHECK_KEYS.issuer)) {
@@ -182,7 +186,7 @@ export class RevocationStatusCheck {
    * @returns an object with two properties: "message" and "status". The "message" property is a string
    * and the "status" property is a boolean.
    */
-  private checkRevocationRevokedAssertions(): { message: string; status: boolean; } {
+  private checkRevocationRevokedAssertions(): ResponseMessage {
     if (
       isKeyPresent(
         this.revocationListData,
@@ -214,11 +218,45 @@ export class RevocationStatusCheck {
   }
 
   /**
+   * The function checks if a valid from date is present in a credential object and returns a message
+   * and status indicating if the validation was successful.
+   * @returns a Promise that resolves to an object with two properties: "message" and "status".
+   */
+  private async checkValidFromDate(): Promise<ResponseMessage> {
+    await sleep(400);
+
+    if (
+      isKeyPresent(
+        this.credential,
+        CREDENTIALS_VALIDATORS_KEYS.validFromDate
+      )
+    ) {
+      let validFromDate = getDataFromKey(
+        this.credential,
+        CREDENTIALS_VALIDATORS_KEYS.validFromDate
+      );
+
+      if (validFromDate?.length && !isFutureDate(validFromDate)) {
+        this.progressCallback(Stages.checkValidFromDate, Messages.VALID_FROM_DATE_KEY_VALIDATE, true, Messages.VALID_FROM_DATE_KEY_SUCCESS);
+        return { message: Messages.VALID_FROM_DATE_KEY_SUCCESS, status: true };
+      }
+
+      const formattedDate = formatCustomDate(new Date(validFromDate));
+
+      this.progressCallback(Stages.checkValidFromDate, Messages.VALID_FROM_DATE_KEY_VALIDATE, false, `${Messages.VALID_FROM_DATE_KEY_ERROR} ${formattedDate}`);
+      return { message: `${Messages.VALID_FROM_DATE_KEY_ERROR} ${formattedDate}`, status: false };
+    }
+
+    this.progressCallback(Stages.checkValidFromDate, Messages.VALID_FROM_DATE_KEY_VALIDATE, true, Messages.VALID_FROM_DATE_KEY_SUCCESS);
+    return { message: Messages.VALID_FROM_DATE_KEY_SUCCESS, status: true };
+  }
+
+  /**
    * The function `checkValidUntilDate` checks if a validUntilDate key is present in the credential
    * object and if it is not expired.
    * @returns a Promise that resolves to an object with two properties: "message" and "status".
    */
-  private async checkValidUntilDate(): Promise<{ message: string; status: boolean; }> {
+  private async checkValidUntilDate(): Promise<ResponseMessage> {
     await sleep(400);
 
     if (
@@ -237,8 +275,10 @@ export class RevocationStatusCheck {
         return { message: Messages.VALID_UNTIL_DATE_KEY_SUCCESS, status: true };
       }
 
-      this.progressCallback(Stages.checkValidUntilDate, Messages.VALID_UNTIL_DATE_KEY_VALIDATE, false, Messages.VALID_UNTIL_DATE_KEY_ERROR);
-      return { message: Messages.VALID_UNTIL_DATE_KEY_ERROR, status: false };
+      const formattedDate = formatCustomDate(new Date(validUntilDate));
+
+      this.progressCallback(Stages.checkValidUntilDate, Messages.VALID_UNTIL_DATE_KEY_VALIDATE, false, `${Messages.VALID_UNTIL_DATE_KEY_ERROR} ${formattedDate}`);
+      return { message: `${Messages.VALID_UNTIL_DATE_KEY_ERROR} ${formattedDate}`, status: false };
     }
 
     this.progressCallback(Stages.checkValidUntilDate, Messages.VALID_UNTIL_DATE_KEY_VALIDATE, true, Messages.VALID_UNTIL_DATE_KEY_SUCCESS);

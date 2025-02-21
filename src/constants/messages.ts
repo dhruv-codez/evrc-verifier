@@ -15,8 +15,12 @@ export enum Messages {
   ID_KEY_ERROR = "Credential id key is not present or having invalid data in the credential.",
 
   CREDENTIAL_SUBJECT_KEY_VALIDATE = "Validate Credential credentialSubject",
-  CREDENTIAL_SUBJECT_KEY_SUCCESS = "Credential credential subject key is present in the certificate with valid data.",
-  CREDENTIAL_SUBJECT_KEY_ERROR = "Credential credentialSubject key is not present or having invalid data in the credential.",
+  CREDENTIAL_SUBJECT_KEY_SUCCESS = "credentialSubject key is present in the certificate with valid data.",
+  CREDENTIAL_SUBJECT_KEY_ERROR = "credentialSubject key is not present or having invalid data in the credential.",
+
+  ISSUER_KEY_VALIDATE = "Validate Credential issuer",
+  ISSUER_KEY_SUCCESS = "issuer key is present in the certificate with valid data.",
+  ISSUER_KEY_ERROR = "issuer key is not present or having invalid data in the credential.",
 
   CREDENTIALS_VALIDATION = "Credentials validation",
   CREDENTIALS_VALIDATION_SUCCESS = "Credentials validation succeeded",
@@ -37,9 +41,6 @@ export enum Messages {
   ISSUER_VALIDATION = 'Issuer validation',
   ISSUER_VALIDATION_SUCCESS = 'Issuer validation succeeded',
   ISSUER_VALIDATION_FAILED = 'Issuer validation failed',
-
-  ISSUER_KEY_SUCCESS = "Credential issuer validation successful.",
-  ISSUER_KEY_ERROR = "Credential issuer key is not present or having invalid data in the credential.",
 
   FETCHING_ISSUER_PROFILE = "Fetching issuer validation started",
   FETCHING_ISSUER_PROFILE_SUCCESS = "Issuer profile details fetched successfully.",
@@ -101,7 +102,11 @@ export enum Messages {
 
   VALID_UNTIL_DATE_KEY_VALIDATE = "Validate Credential validUntil",
   VALID_UNTIL_DATE_KEY_SUCCESS = "validUntil key is present in the credential with valid data.",
-  VALID_UNTIL_DATE_KEY_ERROR = "credential is expired.",
+  VALID_UNTIL_DATE_KEY_ERROR = "The credential expired on",
+
+  VALID_FROM_DATE_KEY_VALIDATE = "Validate Credential validFrom",
+  VALID_FROM_DATE_KEY_SUCCESS = "validFrom key is present in the credential with valid data.",
+  VALID_FROM_DATE_KEY_ERROR = "This credential is currently inactive and will be valid from",
 
   REVOCATION_STATUS_CHECK_SUCCESS = "Credential is valid and not revoked.",
   REVOCATION_STATUS_CHECK_FAILED = "Revocation status check failed",
@@ -110,12 +115,9 @@ export enum Messages {
   FETCHING_NORMALIZED_DECODED_DATA_SUCCESS = "Fetched normalized and decoded data successfully.",
   FETCHING_NORMALIZED_DECODED_DATA_ERROR = "Error while fetching normalized and decoded data",
 
-  FETCHING_AES_NORMALIZED_DECODED_DATA_SUCCESS = "Fetched normalized and decoded data with AES successfully.",
-  FETCHING_AES_NORMALIZED_DECODED_DATA_ERROR = "Error while fetching normalized and decoded data with AES",
-
   ANCHOR_DECODED_DATA_KEY_VALIDATE = "Validate decoded data anchors",
   ANCHOR_DECODED_DATA_KEY_SUCCESS = "anchors key is present with valid data.",
-  ANCHOR_DECODED_DATA_KEY_ERROR = "Invalid credential.",
+  ANCHOR_DECODED_DATA_KEY_ERROR = "anchors key is not present or having invalid data list.",
 
   PATH_DECODED_DATA_KEY_VALIDATE = "Validate decoded data path",
   PATH_DECODED_DATA_KEY_SUCCESS = "path key is present with valid data.",
@@ -140,17 +142,18 @@ export enum Messages {
   DATA_FETCHED_SUCCESS = "Data successfully fetched from the blockchain API.",
 
   MERKLE_PROOF_VALIDATE = 'Validate Merkleproof',
-
   CALCULATED_HASH_DIFFER_FROM_MERKLEROOT = "The calculated hash does not match the provided merkleRoot.",
   CALCULATED_HASH_MATCHES_WITH_MERKLEROOT = "The calculated hash matches the provided merkleRoot.",
 
   VALIDATE_TARGET_HASH = 'Validate target hash',
-
   CALCULATED_HASH_DIFFER_FROM_TARGETHASH = "The calculated hash does not match the provided targetHash.",
   CALCULATED_HASH_MATCHES_WITH_TARGETHASH = "The calculated hash matches the provided targetHash.",
 
-  MERKLE_PROOF_2019_VALIDATION = "MerkleProof2019 validation",
-  MERKLE_PROOF_2019_VALIDATION_SUCCESS = "MerkleProof2019 validation successful.",
-  MERKLE_PROOF_2019_VALIDATION_FAILED = "MerkleProof2019 validation failed.",
+  SIGNATURE_VERIFICATION = "Signature Verification",
+  SIGNATURE_VERIFICATION_FAILED = "Signature Verification failed.",
+  SIGNATURE_VERIFICATION_SUCCESS = "Signature Verification successful.",
 
+  DATA_INTEGRITY_CHECK = "Data Integrity Check",
+  DATA_INTEGRITY_CHECK_SUCCESS = "Data Integrity Check successful.",
+  DATA_INTEGRITY_CHECK_FAILED = "Data Integrity Check failed.",
 }

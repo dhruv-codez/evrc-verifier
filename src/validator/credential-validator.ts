@@ -10,6 +10,7 @@ import {
 } from "../constants/common";
 import { Messages } from '../constants/messages';
 import { Stages } from '../constants/stages';
+import { ProcessStepStatus, ResponseMessage } from '../models/common.model';
 
 export class CredentialValidator {
   private credential: any;
@@ -24,7 +25,7 @@ export class CredentialValidator {
    * @returns The function `validate` returns a promise that resolves to an object with two properties:
    * `message` and `status`.
    */
-  async validate(credentialData: any): Promise<{ message: string; status: boolean; }> {
+  async validate(credentialData: any): Promise<ResponseMessage> {
     this.credential = deepCloneData(credentialData);
 
     if (
@@ -32,6 +33,7 @@ export class CredentialValidator {
       (await this.validateCredentialContext()).status &&
       (await this.validateCredentialID()).status &&
       (await this.validateCredentialSubject()).status &&
+      (await this.validateIssuer()).status &&
       (await this.validateCredentialProof()).status &&
       (await this.validateCredentialIssuanceDate()).status
     ) {
@@ -48,13 +50,15 @@ export class CredentialValidator {
    * `credential` object and returns a boolean value indicating whether it is valid or not.
    * @returns a Promise that resolves to a boolean value.
    */
-  private async validateCredentialType(): Promise<{ step: string, title: string, status: boolean, reason: string; }> {
+  private async validateCredentialType(): Promise<ProcessStepStatus> {
     if (isKeyPresent(this.credential, CREDENTIALS_VALIDATORS_KEYS.type)) {
       let typeData: string[] = getDataFromKey(
         this.credential,
         CREDENTIALS_VALIDATORS_KEYS.type
       );
-      if (typeData.includes(CREDENTIALS_CONSTANTS.verifiable_credential)) {
+      if (
+        CREDENTIALS_CONSTANTS.verifiable_credential.some((data) => typeData.includes(data))
+      ) {
         this.progressCallback(Stages.validateCredentialType, Messages.TYPE_KEY_VALIDATE, true, Messages.TYPE_KEY_SUCCESS);
         return { step: Stages.validateCredentialType, title: Messages.TYPE_KEY_VALIDATE, status: true, reason: Messages.TYPE_KEY_SUCCESS };
       }
@@ -70,7 +74,7 @@ export class CredentialValidator {
    * otherwise.
    * @returns a Promise that resolves to a boolean value.
    */
-  private async validateCredentialContext(): Promise<{ step: string, title: string, status: boolean, reason: string; }> {
+  private async validateCredentialContext(): Promise<ProcessStepStatus> {
     if (isKeyPresent(this.credential, CREDENTIALS_VALIDATORS_KEYS.context)) {
       let contextData: string[] = getDataFromKey(
         this.credential,
@@ -93,7 +97,7 @@ export class CredentialValidator {
    * returns true if it is, otherwise it logs an error message and returns false.
    * @returns a Promise that resolves to a boolean value.
    */
-  private async validateCredentialID(): Promise<{ step: string, title: string, status: boolean, reason: string; }> {
+  private async validateCredentialID(): Promise<ProcessStepStatus> {
     if (isKeyPresent(this.credential, CREDENTIALS_VALIDATORS_KEYS.id)) {
       if (getDataFromKey(this.credential, CREDENTIALS_VALIDATORS_KEYS.id)) {
         this.progressCallback(Stages.validateCredentialID, Messages.ID_KEY_VALIDATE, true, Messages.ID_KEY_SUCCESS);
@@ -110,7 +114,7 @@ export class CredentialValidator {
    * `credentialSubject` object and returns true if they are, otherwise it returns false.
    * @returns a Promise<boolean>.
    */
-  private async validateCredentialSubject(): Promise<{ step: string, title: string, status: boolean, reason: string; }> {
+  private async validateCredentialSubject(): Promise<ProcessStepStatus> {
     if (
       isKeyPresent(
         this.credential,
@@ -122,22 +126,12 @@ export class CredentialValidator {
         CREDENTIALS_VALIDATORS_KEYS.credentialSubject
       );
 
-      if (
-        credentialSubjectData &&
-        CREDENTIALS_CONSTANTS.credentialSubjectRequiredKeys.every((data) =>
-          Object.keys(credentialSubjectData).includes(data)
-        )
-      ) {
-        let flag = false;
+      if (Object.keys(credentialSubjectData).length) {
+        const hasRequiredKeys = CREDENTIALS_CONSTANTS.credentialSubjectRequiredKeys.every(key =>
+          Object.keys(credentialSubjectData).includes(key) && credentialSubjectData[key]
+        );
 
-        for (const key of CREDENTIALS_CONSTANTS.credentialSubjectRequiredKeys) {
-          if (!credentialSubjectData[key]) {
-            flag = true;
-            break;
-          }
-        }
-
-        if (!flag) {
+        if (hasRequiredKeys) {
           this.progressCallback(Stages.validateCredentialSubject, Messages.CREDENTIAL_SUBJECT_KEY_VALIDATE, true, Messages.CREDENTIAL_SUBJECT_KEY_SUCCESS);
           return { step: Stages.validateCredentialSubject, title: Messages.CREDENTIAL_SUBJECT_KEY_VALIDATE, status: true, reason: Messages.CREDENTIAL_SUBJECT_KEY_SUCCESS };
         }
@@ -149,11 +143,56 @@ export class CredentialValidator {
   }
 
   /**
+   * The function `validateIssuer` checks if the required issuer keys are present in the credential
+   * data and returns a status based on the validation result.
+   * @returns This `validateIssuer` function returns a `ProcessStepStatus` object with properties
+   * `step`, `title`, `status`, and `reason`. The returned object contains information about the
+   * validation status of the issuer key in the credential being processed.
+   */
+  private async validateIssuer(): Promise<ProcessStepStatus> {
+    if (
+      isKeyPresent(
+        this.credential,
+        CREDENTIALS_VALIDATORS_KEYS.issuer
+      )
+    ) {
+      let issuerData = getDataFromKey(
+        this.credential,
+        CREDENTIALS_VALIDATORS_KEYS.issuer
+      );
+
+      if (
+        Object.keys(issuerData).length &&
+        CREDENTIALS_CONSTANTS.issuerRequiredKeys.every(
+          (data) => Object.keys(issuerData).includes(data)
+        )
+      ) {
+        let flag = false;
+
+        for (const key of CREDENTIALS_CONSTANTS.issuerRequiredKeys) {
+          if (!issuerData[key]) {
+            flag = true;
+            break;
+          }
+        }
+
+        if (!flag) {
+          this.progressCallback(Stages.validateIssuer, Messages.ISSUER_KEY_VALIDATE, true, Messages.ISSUER_KEY_SUCCESS);
+          return { step: Stages.validateIssuer, title: Messages.ISSUER_KEY_VALIDATE, status: true, reason: Messages.ISSUER_KEY_SUCCESS };
+        }
+      }
+    }
+
+    this.progressCallback(Stages.validateIssuer, Messages.ISSUER_KEY_VALIDATE, false, Messages.ISSUER_KEY_ERROR);
+    return { step: Stages.validateIssuer, title: Messages.ISSUER_KEY_VALIDATE, status: false, reason: Messages.ISSUER_KEY_ERROR };
+  }
+
+  /**
    * The function `validateCredentialProof` checks if a proof key is present in a credential object and
    * validates its data.
    * @returns a Promise<boolean>.
    */
-  private async validateCredentialProof(): Promise<{ step: string, title: string, status: boolean, reason: string; }> {
+  private async validateCredentialProof(): Promise<ProcessStepStatus> {
     if (isKeyPresent(this.credential, CREDENTIALS_VALIDATORS_KEYS.proof)) {
       let proofData = getDataFromKey(
         this.credential,
@@ -196,7 +235,7 @@ export class CredentialValidator {
    * otherwise it returns false and logs an error message.
    * @returns a Promise that resolves to a boolean value.
    */
-  private async validateCredentialIssuanceDate(): Promise<{ step: string, title: string, status: boolean, reason: string; }> {
+  private async validateCredentialIssuanceDate(): Promise<ProcessStepStatus> {
     if (
       isKeyPresent(this.credential, CREDENTIALS_VALIDATORS_KEYS.issuanceDate)
     ) {
