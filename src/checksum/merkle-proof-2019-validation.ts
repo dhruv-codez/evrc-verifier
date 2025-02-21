@@ -1,13 +1,16 @@
 import { Buffer } from 'buffer';
-import * as CryptoJS from 'crypto-js';
 import { isEmpty } from 'lodash';
 import sha256 from 'sha256';
+import nacl from 'tweetnacl';
+import naclUtil from 'tweetnacl-util';
+import Web3 from 'web3';
 import {
   ALGORITHM_TYPES,
   APPLICATION_JSON,
   BASE_API,
   BASE_NETWORK,
   BLOCKCHAIN_API_LIST,
+  BUFFER_ENCODING_TYPE,
   CHECKSUM_MERKLEPROOF_CHECK_KEYS,
   GENERAL_KEYWORDS,
   HTTP_METHODS,
@@ -16,7 +19,8 @@ import {
 } from '../constants/common';
 import { Messages } from '../constants/messages';
 import { Stages } from '../constants/stages';
-import { MERKLE_TREE_VALIDATION_API_URL } from '../utils/config';
+import { CreateResponse, NetworkResponseStatus } from '../models/checksum.model';
+import { ResponseMessage } from '../models/common.model';
 import {
   deepCloneData,
   getDataFromAPI,
@@ -26,6 +30,7 @@ import {
 } from '../utils/credential-util';
 import { logger } from '../utils/logger';
 import { sleep } from '../utils/sleep';
+import { MERKLE_TREE_VALIDATION_API_URL } from '../utils/url.config';
 
 export class MerkleProofValidator2019 {
   private credential: any;
@@ -38,123 +43,144 @@ export class MerkleProofValidator2019 {
   constructor(private progressCallback: (step: string, title: string, status: boolean, reason: string) => void) { }
 
   /**
-   * The `validate` function performs various checks and validations on a given credential data and
-   * returns a status and message indicating whether the validation was successful or not.
+   * The function `validate` performs various checks on credential data and returns a response
+   * indicating the status of the data integrity check.
    * @param {any} credentialData - The `credentialData` parameter is an object that contains the data
-   * needed for validation. It is passed to the `validate` function as an argument.
-   * @returns an object with the properties `message`, `status`, and `networkName`.
+   * needed for the validation process. It is used as input for various validation checks and
+   * verification steps within the `validate` function.
+   * @returns The function `validate` returns a promise that resolves to an object with the following
+   * properties: `message` (string), `status` (boolean), and `networkName` (string).
    */
-  async validate(credentialData: any): Promise<{ message: string; status: boolean; networkName: string; }> {
+  async validate(credentialData: any): Promise<NetworkResponseStatus> {
     await this.getData(credentialData);
 
     if (isObjectEmpty(this.decodedData)) {
-      this.progressCallback(Stages.merkleProofValidation2019, Messages.FETCHING_NORMALIZED_DECODED_DATA, false, Messages.FETCHING_NORMALIZED_DECODED_DATA_ERROR);
-      return { message: Messages.FETCHING_NORMALIZED_DECODED_DATA_ERROR, status: false, networkName: '' };
+      return this.createResponse(Stages.dataIntegrityCheck, Messages.FETCHING_NORMALIZED_DECODED_DATA_ERROR, false, '');
     }
 
-    if (
-      (await this.checkDecodedAnchors()).status &&
-      (await this.checkDecodedPath()).status &&
-      (await this.checkDecodedMerkleRoot()).status &&
-      (await this.checkDecodedTargetHash()).status &&
-      (await this.fetchDataFromBlockchainAPI()).status &&
-      (await this.verifyMerkleProof()).status
-    ) {
-      const normalizedData = getDataFromKey(
-        this.normalizedDecodedData,
-        CHECKSUM_MERKLEPROOF_CHECK_KEYS.get_byte_array_to_issue
-      );
-      const encodedHash = await this.calculateHash(normalizedData);
+    const checks = await Promise.all([
+      this.checkDecodedAnchors(),
+      this.checkDecodedPath(),
+      this.checkDecodedMerkleRoot(),
+      this.checkDecodedTargetHash(),
+      this.fetchDataFromBlockchainAPI(),
+      this.verifyMerkleRootHash()
+    ]);
 
-      if (this.isMerkleProofVerified && encodedHash === this.decodedData.targetHash) {
-        this.progressCallback(Stages.verifyTargetHash, Messages.VALIDATE_TARGET_HASH, true, Messages.CALCULATED_HASH_MATCHES_WITH_TARGETHASH);
-      } else {
-        this.progressCallback(Stages.verifyTargetHash, Messages.VALIDATE_TARGET_HASH, false, Messages.CALCULATED_HASH_DIFFER_FROM_TARGETHASH);
-        return { message: Messages.MERKLE_PROOF_2019_VALIDATION_FAILED, status: false, networkName: '' };
-      }
-
-      this.progressCallback(Stages.merkleProofValidation2019, Messages.MERKLE_PROOF_2019_VALIDATION, true, Messages.MERKLE_PROOF_2019_VALIDATION_SUCCESS);
-      return { message: Messages.MERKLE_PROOF_2019_VALIDATION, status: true, networkName: this.networkName };
+    if (!checks.every(check => check.status)) {
+      return this.createResponse(Stages.dataIntegrityCheck, Messages.DATA_INTEGRITY_CHECK_FAILED, false, '');
     }
 
-    this.progressCallback(Stages.merkleProofValidation2019, Messages.MERKLE_PROOF_2019_VALIDATION, false, Messages.MERKLE_PROOF_2019_VALIDATION_FAILED);
-    return { message: Messages.MERKLE_PROOF_2019_VALIDATION_FAILED, status: false, networkName: '' };
+    let verificationStatus = false;
+
+    if (this.credential?.proof?.type === ALGORITHM_TYPES.ED25519SIGNATURE2020) {
+      verificationStatus = (await this.verifyEd25519()).status;
+    } else {
+      verificationStatus = (await this.verifyMerkleProof()).status;
+    }
+
+    if (verificationStatus) {
+      return this.createResponse(Stages.dataIntegrityCheck, Messages.DATA_INTEGRITY_CHECK_SUCCESS, true, this.networkName);
+    }
+
+    return this.createResponse(Stages.dataIntegrityCheck, Messages.DATA_INTEGRITY_CHECK_FAILED, false, '');
   }
 
   /**
-   * The `getData` function takes in `credentialData` and performs different operations based on the type
-   * of proof in the credential.
-   * @param {any} credentialData - The `credentialData` parameter is an object that contains the data
-   * needed for the credential. It is of type `any`, which means it can be any type of data.
+   * This function verifies the integrity of data using a Merkle proof.
+   * @returns an object with the following properties:
+   * - message: A string indicating the result of the data integrity check.
+   * - status: A boolean indicating whether the data integrity check was successful or not.
+   * - networkName: A string indicating the name of the network.
    */
-  private async getData(credentialData: any) {
+  private async verifyMerkleProof(): Promise<NetworkResponseStatus> {
+    const normalizedData = getDataFromKey(
+      this.normalizedDecodedData,
+      CHECKSUM_MERKLEPROOF_CHECK_KEYS.get_byte_array_to_issue
+    );
+    const encodedHash = await this.calculateHash(normalizedData);
+
+    if (this.isMerkleProofVerified && encodedHash === this.decodedData.targetHash) {
+      this.progressCallback(Stages.verifyTargetHash, Messages.VALIDATE_TARGET_HASH, true, Messages.CALCULATED_HASH_MATCHES_WITH_TARGETHASH);
+      return { message: Messages.DATA_INTEGRITY_CHECK_SUCCESS, status: true, networkName: this.networkName };
+    } else {
+      this.progressCallback(Stages.verifyTargetHash, Messages.VALIDATE_TARGET_HASH, false, Messages.CALCULATED_HASH_DIFFER_FROM_TARGETHASH);
+      return { message: Messages.DATA_INTEGRITY_CHECK_FAILED, status: false, networkName: this.networkName };
+    }
+  }
+
+  /**
+   * The `verifyEd25519` function verifies the Ed25519 signature of a credential by comparing it with the
+   * calculated hash value.
+   * @returns The function `verifyEd25519` returns a Promise that resolves to an object with the
+   * following properties:
+   */
+  private async verifyEd25519(): Promise<NetworkResponseStatus> {
+    try {
+      const dataToVerify = { ...this.credential };
+      delete dataToVerify.proof;
+
+      // Convert data object to Uint8Array
+      const dataString = JSON.stringify(dataToVerify);
+      const messageUint8 = naclUtil.decodeUTF8(dataString);
+      const signature = naclUtil.decodeBase64(this.credential?.proof?.proofValue);
+      const credentialSubject = await getDataFromAPI(this.credential?.credentialSubject?.profile);
+      const pubKey = naclUtil.decodeBase64(credentialSubject?.publicKey[0]?.publicKey);
+
+      // Verify the signature
+      const isValid = nacl.sign.detached.verify(messageUint8, signature, pubKey);
+
+      if (isValid) {
+        this.progressCallback(Stages.verifyTargetHash, Messages.SIGNATURE_VERIFICATION, true, Messages.SIGNATURE_VERIFICATION_SUCCESS);
+        return { message: Messages.SIGNATURE_VERIFICATION, status: true, networkName: this.networkName };
+      } else {
+        this.progressCallback(Stages.verifyTargetHash, Messages.SIGNATURE_VERIFICATION, false, Messages.SIGNATURE_VERIFICATION_FAILED);
+        return { message: Messages.SIGNATURE_VERIFICATION, status: false, networkName: this.networkName };
+      }
+    } catch (error) {
+      this.progressCallback(Stages.verifyTargetHash, Messages.SIGNATURE_VERIFICATION, false, Messages.SIGNATURE_VERIFICATION_FAILED);
+      return { message: Messages.SIGNATURE_VERIFICATION, status: false, networkName: this.networkName };
+    }
+  }
+
+  /**
+   * The `getData` function retrieves and processes data based on the provided credential data.
+   * @param {any} credentialData - The `credentialData` parameter is an object that contains data
+   * related to a credential. It may have the following properties:
+   */
+  private async getData(credentialData: any): Promise<void> {
     this.credential = deepCloneData(credentialData);
 
-    switch (this.credential?.proof?.type) {
-      case ALGORITHM_TYPES.MERKLEPROOF:
-        this.normalizedDecodedData = await this.getNormalizedDecodedData(ALGORITHM_TYPES.MERKLEPROOF);
-        this.decodedData = getDataFromKey(
-          this.normalizedDecodedData,
-          CHECKSUM_MERKLEPROOF_CHECK_KEYS.decoded_proof_value
-        );
-        break;
-
-      case ALGORITHM_TYPES.AES:
-        this.normalizedDecodedData = await this.getNormalizedDecodedData(ALGORITHM_TYPES.AES);
-        this.decodedData = JSON.parse(await this.getAESDecodedData());
-        break;
-
-      default:
-        this.decodedData = {};
-        break;
+    if (this.credential?.proof?.type === ALGORITHM_TYPES.ED25519SIGNATURE2020 || Object.keys(this.credential?.proof?.merkleProof).length) {
+      this.normalizedDecodedData = await this.getNormalizedData();
+      this.decodedData = getDataFromKey(
+        this.normalizedDecodedData,
+        CHECKSUM_MERKLEPROOF_CHECK_KEYS.decoded_proof_value
+      );
+    } else if (this.credential?.proof?.type === ALGORITHM_TYPES.MERKLEPROOF) {
+      this.normalizedDecodedData = await this.getNormalizedDecodedData(ALGORITHM_TYPES.MERKLEPROOF);
+      this.decodedData = getDataFromKey(
+        this.normalizedDecodedData,
+        CHECKSUM_MERKLEPROOF_CHECK_KEYS.decoded_proof_value
+      );
+    } else {
+      this.decodedData = {};
     }
   }
 
   /**
-   * The function `getAESDecodedData` decrypts a given proof value using AES encryption with a specified
-   * key and initialization vector.
-   * @returns The decrypted data as a string in UTF-8 encoding.
+   * The function `getNormalizedData` returns an object with a stringified version of `this.credential`
+   * and the `merkleProof` value from `this.credential.proof`.
+   * @returns an object with two properties: "get_byte_array_to_issue" and "decoded_proof_value". The
+   * value of "get_byte_array_to_issue" is a stringified JSON representation of the "dataToNormalize"
+   * object, with the "proof" property removed. The value of "decoded_proof_value" is the value of
+   * "this.credential.proof.merkleProof".
    */
-  private async getAESDecodedData(): Promise<any> {
-    const proofValue = getDataFromKey(
-      this.credential.proof,
-      CHECKSUM_MERKLEPROOF_CHECK_KEYS.proofValue
-    );
-    const AES_128_KEY = getDataFromKey(
-      this.credential.proof.proofDecodingKeys,
-      CHECKSUM_MERKLEPROOF_CHECK_KEYS.AES_128_KEY
-    );
-    const AES_128_IV = getDataFromKey(
-      this.credential.proof.proofDecodingKeys,
-      CHECKSUM_MERKLEPROOF_CHECK_KEYS.AES_128_IV
-    );
+  private async getNormalizedData() {
+    const dataToNormalize = { ...this.credential };
+    delete dataToNormalize.proof;
 
-    if (!proofValue?.length || !AES_128_IV?.length || !AES_128_KEY?.length) {
-      this.progressCallback(Stages.getAESDecodedData, Messages.FETCHING_NORMALIZED_DECODED_DATA, false, Messages.FETCHING_AES_NORMALIZED_DECODED_DATA_ERROR);
-      return {};
-    }
-
-    this.progressCallback(Stages.getAESDecodedData, Messages.FETCHING_NORMALIZED_DECODED_DATA, true, Messages.FETCHING_AES_NORMALIZED_DECODED_DATA_SUCCESS);
-    return this.AESDecrypt(proofValue, AES_128_KEY, AES_128_IV);
-  }
-
-  /**
-   * The function AESDecrypt takes a proofValue, AES_128_KEY, and AES_128_IV as input and uses AES
-   * encryption to decrypt the proofValue and return the decrypted string.
-   * @param {string} proofValue - The `proofValue` parameter is the encrypted value that you want to
-   * decrypt using AES-128 encryption.
-   * @param {string} AES_128_KEY - The AES_128_KEY parameter is a string that represents the 128-bit
-   * encryption key used for AES decryption.
-   * @param {string} AES_128_IV - The AES_128_IV parameter is the initialization vector used for AES
-   * decryption. It is a string representation of the 128-bit IV value.
-   * @returns a decrypted string.
-   */
-  private AESDecrypt(proofValue: string, AES_128_KEY: string, AES_128_IV: string): string {
-    return CryptoJS.AES.decrypt(
-      proofValue,
-      CryptoJS.enc.Utf8.parse(AES_128_KEY),
-      { iv: CryptoJS.enc.Utf8.parse(AES_128_IV), mode: CryptoJS.mode.CBC }
-    ).toString(CryptoJS.enc.Utf8);
+    return { get_byte_array_to_issue: JSON.stringify(dataToNormalize), decoded_proof_value: this.credential?.proof?.merkleProof };
   }
 
   /**
@@ -196,7 +222,7 @@ export class MerkleProofValidator2019 {
  * @returns an object with two properties: "message" and "status". The "message" property contains a
  * string value, and the "status" property contains a boolean value.
  */
-  private validateNormalizedDecodedData(response: any): { message: string; status: boolean; } {
+  private validateNormalizedDecodedData(response: unknown): ResponseMessage {
     if (
       !isKeyPresent(response, CHECKSUM_MERKLEPROOF_CHECK_KEYS.decoded_proof_value) &&
       !isKeyPresent(response, CHECKSUM_MERKLEPROOF_CHECK_KEYS.get_byte_array_to_issue)
@@ -215,7 +241,7 @@ export class MerkleProofValidator2019 {
    * @returns an object with two properties: "message" and "status". The "message" property is a string
    * and the "status" property is a boolean.
    */
-  private async checkDecodedAnchors(): Promise<{ message: string; status: boolean; }> {
+  private async checkDecodedAnchors(): Promise<ResponseMessage> {
     await sleep(250);
 
     if (
@@ -247,7 +273,7 @@ export class MerkleProofValidator2019 {
    * "Messages.PATH_DECODED_DATA_KEY_ERROR". The "status" property is set to true if the condition is
    * met, otherwise it is set to false.
    */
-  private async checkDecodedPath(): Promise<{ message: string; status: boolean; }> {
+  private async checkDecodedPath(): Promise<ResponseMessage> {
     await sleep(500);
 
     if (
@@ -270,7 +296,7 @@ export class MerkleProofValidator2019 {
    * @returns a Promise that resolves to an object with two properties: "message" and "status". The
    * "message" property is a string and the "status" property is a boolean.
    */
-  private async checkDecodedMerkleRoot(): Promise<{ message: string; status: boolean; }> {
+  private async checkDecodedMerkleRoot(): Promise<ResponseMessage> {
     await sleep(750);
 
     if (
@@ -299,7 +325,7 @@ export class MerkleProofValidator2019 {
    * @returns an object with two properties: "message" and "status". The "message" property is a string
    * and the "status" property is a boolean.
    */
-  private async checkDecodedTargetHash(): Promise<{ message: string; status: boolean; }> {
+  private async checkDecodedTargetHash(): Promise<ResponseMessage> {
     await sleep(1000);
 
     if (
@@ -328,7 +354,7 @@ export class MerkleProofValidator2019 {
    * @returns The function `fetchDataFromBlockchainAPI` returns a Promise that resolves to an object
    * with two properties: `message` and `status`.
    */
-  private async fetchDataFromBlockchainAPI(): Promise<{ message: string; status: boolean; }> {
+  private async fetchDataFromBlockchainAPI(): Promise<ResponseMessage> {
     // Fetching the selected anchor from decodedData
     const anchorParts = getDataFromKey(this.decodedData?.anchors, ['0'])?.split(':') || [];
     if (!anchorParts?.length) {
@@ -380,8 +406,14 @@ export class MerkleProofValidator2019 {
     const finalUrl = await this.buildTransactionUrl(url, apiKey, transactionID);
 
     try {
-      // Fetching data from the API using finalUrl
-      this.blockchainApiResponse = await getDataFromAPI(finalUrl);
+      if (this.networkName === BLOCKCHAIN_API_LIST[4]?.id) {
+        // Fetching data using the RPC URL using WEB3 js
+        const web3 = new Web3(new Web3.providers.HttpProvider(`${matchedAPI.url}`));
+        this.blockchainApiResponse = await web3.eth.getTransaction(transactionID);
+      } else {
+        // Fetching data from the API using finalUrl
+        this.blockchainApiResponse = await getDataFromAPI(finalUrl);
+      }
     } catch (error) {
       this.progressCallback(Stages.fetchDataFromBlockchainAPI, Messages.BLOCKCHAIN_DATA_VALIDATE, false, Messages.TRANSACTION_NOT_FOUND_ERROR);
       return { message: Messages.TRANSACTION_NOT_FOUND_ERROR, status: false };
@@ -406,7 +438,7 @@ export class MerkleProofValidator2019 {
    * matches with the merkle root or not. The `status` property is a boolean value indicating whether the
    * merkle proof is verified or not.
    */
-  private async verifyMerkleProof(): Promise<{ message: string; status: boolean; }> {
+  private async verifyMerkleRootHash(): Promise<ResponseMessage> {
     const targetHash = getDataFromKey(
       this.decodedData,
       CHECKSUM_MERKLEPROOF_CHECK_KEYS.targetHash
@@ -429,13 +461,13 @@ export class MerkleProofValidator2019 {
     let currentHash = targetHash;
 
     for (const proofElement of path) {
-      if (proofElement.left) {
-        const concatenatedHash = proofElement.left + currentHash;
-        const buffer = Buffer.from(concatenatedHash, 'hex');
+      if (proofElement?.left) {
+        const concatenatedHash = proofElement?.left + currentHash;
+        const buffer = Buffer.from(concatenatedHash, BUFFER_ENCODING_TYPE);
         currentHash = await this.calculateHash(buffer);
-      } else if (proofElement.right) {
-        const concatenatedHash = currentHash + proofElement.right;
-        const buffer = Buffer.from(concatenatedHash, 'hex');
+      } else if (proofElement?.right) {
+        const concatenatedHash = currentHash + proofElement?.right;
+        const buffer = Buffer.from(concatenatedHash, BUFFER_ENCODING_TYPE);
         currentHash = await this.calculateHash(buffer);
       }
     }
@@ -482,14 +514,30 @@ export class MerkleProofValidator2019 {
   }
 
   /**
-   * The function calculates the SHA256 hash of the given data.
-   * @param {any} data - The `data` parameter is the input data for which you want to calculate the hash.
-   * It can be of any type, such as a string, number, object, or array.
-   * @returns The calculateHash function is returning the result of the sha256 function, which is the
-   * hash value of the input data.
+   * The function calculates the SHA256 hash of a given buffer of data.
+   * @param {Buffer} data - The `data` parameter is of type `Buffer`, which is a binary data buffer. It
+   * is the input data for which you want to calculate the hash.
+   * @returns The calculateHash function returns a Promise that resolves to a string.
    */
-  private async calculateHash(data: any) {
+  private async calculateHash(data: Buffer): Promise<string> {
     return sha256(data);
   }
 
+  /**
+ * The function creates a response object with a message, status, and network name, and calls a
+ * progress callback function.
+ * @param {Stages} stage - The stage parameter is of type Stages. It represents the current stage of
+ * the process.
+ * @param {string} message - A string that represents the response message.
+ * @param {boolean} status - The `status` parameter is a boolean value indicating the success or
+ * failure of the operation.
+ * @param {string} networkName - The `networkName` parameter is a string that represents the name of
+ * the network. It is used as a property in the returned object.
+ * @returns an object with three properties: "message" (string), "status" (boolean), and "networkName"
+ * (string).
+ */
+  private createResponse(stage: Stages, message: string, status: boolean, networkName: string): CreateResponse {
+    this.progressCallback(stage, message, status, status ? Messages.DATA_INTEGRITY_CHECK_SUCCESS : Messages.DATA_INTEGRITY_CHECK_FAILED);
+    return { message, status, networkName };
+  }
 }

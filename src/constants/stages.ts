@@ -5,6 +5,7 @@ export enum Stages {
   validateCredentialType = 'validateCredentialType',
   validateCredentialContext = 'validateCredentialContext',
   validateCredentialID = 'validateCredentialID',
+  validateIssuer = 'validateIssuer',
   validateCredentialSubject = 'validateCredentialSubject',
   validateCredentialProof = 'validateCredentialProof',
   validateCredentialIssuanceDate = 'validateCredentialIssuanceDate',
@@ -18,8 +19,7 @@ export enum Stages {
   validateIssuerProfileRevocationList = 'validateIssuerProfileRevocationList',
   validateIssuerProfilePublicKey = 'validateIssuerProfilePublicKey',
   validateRevocationListFromIssuerProfile = 'validateRevocationListFromIssuerProfile',
-  merkleProofValidation2019 = 'merkleProofValidation2019',
-  getAESDecodedData = 'getAESDecodedData',
+  dataIntegrityCheck = 'dataIntegrityCheck',
   getNormalizedDecodedData = 'getNormalizedDecodedData',
   checkDecodedAnchors = 'checkDecodedAnchors',
   checkDecodedPath = 'checkDecodedPath',
@@ -35,4 +35,5 @@ export enum Stages {
   checkRevocationIssuer = 'checkRevocationIssuer',
   checkRevocationRevokedAssertions = 'checkRevocationRevokedAssertions',
   checkValidUntilDate = 'checkValidUntilDate',
+  checkValidFromDate = 'checkValidFromDate',
 }

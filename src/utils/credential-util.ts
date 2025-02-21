@@ -1,4 +1,5 @@
 import { cloneDeep, get, has, isEmpty } from "lodash";
+import { DATE_TIME_FORMAT_LOCALE, DATE_TIME_FORMAT_OPTIONS } from '../constants/common';
 import { logger } from "./logger";
 
 /**
@@ -62,7 +63,6 @@ export async function getDataFromAPI(url: string, options?: any): Promise<any> {
     const response = isEmpty(options) ? await fetch(url) : await fetch(url, options);
     return await response.json();
   } catch (err) {
-    console.error("response >> ", err);
     logger(err, "error");
     throw err;
   }
@@ -104,4 +104,29 @@ export function isValidURL(url: string): boolean {
   } catch (error) {
     return false;
   }
+}
+
+/**
+ * The function checks if a given date is in the future.
+ * @param {string} dateString - The `dateString` parameter is a string representing a date. It should
+ * be in a format that can be parsed by the `Date` constructor, such as "YYYY-MM-DD" or "MM/DD/YYYY".
+ * @returns a boolean value.
+ */
+export function isFutureDate(dateString: string): boolean {
+  const currentDate = new Date();
+  const dateToCheck = new Date(dateString);
+
+  return currentDate < dateToCheck;
+}
+
+/**
+ * The function `formatCustomDate` takes a `Date` object as input and returns a formatted string
+ * representation of the date.
+ * @param {Date} inputDate - The inputDate parameter is a Date object that represents the date and time
+ * you want to format.
+ * @returns a formatted string representation of the input date.
+ */
+export function formatCustomDate(inputDate: Date): string {
+  const formatter = new Intl.DateTimeFormat(DATE_TIME_FORMAT_LOCALE, DATE_TIME_FORMAT_OPTIONS);
+  return formatter.format(inputDate);
 }

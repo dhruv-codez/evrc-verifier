@@ -4,6 +4,7 @@ import {
 } from "../constants/common";
 import { Messages } from "../constants/messages";
 import { Stages } from '../constants/stages';
+import { ProcessStepStatus, ResponseMessage } from '../models/common.model';
 import {
   deepCloneData,
   getDataFromAPI,
@@ -53,13 +54,13 @@ export class CredentialIssuerValidator {
    * @returns an object with two properties: "message" and "status". The "message" property contains a
    * string message, and the "status" property contains a boolean value.
    */
-  private async validateCredentialIssuer(): Promise<{ message: string; status: boolean; }> {
+  private async validateCredentialIssuer(): Promise<ResponseMessage> {
     if (!isKeyPresent(this.credential, CREDENTIALS_ISSUER_VALIDATORS_KEYS.issuer)) {
       this.progressCallback(Stages.validateCredentialIssuer, Messages.ISSUER_VALIDATION, false, Messages.ISSUER_KEY_ERROR);
       return { status: false, message: Messages.ISSUER_KEY_ERROR };
     }
 
-    const issuerData = getDataFromKey(this.credential, CREDENTIALS_ISSUER_VALIDATORS_KEYS.issuer);
+    const issuerData = getDataFromKey(this.credential.issuer, CREDENTIALS_ISSUER_VALIDATORS_KEYS.profile);
 
     if (!issuerData || !isValidURL(issuerData)) {
       this.progressCallback(Stages.validateCredentialIssuer, Messages.ISSUER_VALIDATION, false, Messages.FETCHING_ISSUER_PROFILE_ERROR);
@@ -69,7 +70,7 @@ export class CredentialIssuerValidator {
     try {
       this.issuerProfileData = await getDataFromAPI(issuerData);
 
-      if (!this.issuerProfileData) {
+      if (!Object.keys(this.issuerProfileData)?.length) {
         this.progressCallback(Stages.validateCredentialIssuer, Messages.ISSUER_VALIDATION, false, Messages.FETCHING_ISSUER_PROFILE_ERROR);
         return { status: false, message: Messages.FETCHING_ISSUER_PROFILE_ERROR };
       }
@@ -100,7 +101,7 @@ export class CredentialIssuerValidator {
    * whether the validation was successful or not.
    * @returns a Promise that resolves to an object with two properties: "message" and "status".
    */
-  private async validateIssuerProfileContext(): Promise<{ step: string, title: string, status: boolean, reason: string; }> {
+  private async validateIssuerProfileContext(): Promise<ProcessStepStatus> {
 
     if (
       isKeyPresent(
@@ -127,7 +128,7 @@ export class CredentialIssuerValidator {
    * @returns an object with two properties: "message" and "status". The "message" property contains a
    * string message, and the "status" property contains a boolean value.
    */
-  private validateIssuerCredentialType(): { step: string, title: string, status: boolean, reason: string; } {
+  private validateIssuerCredentialType(): ProcessStepStatus {
     if (
       isKeyPresent(this.issuerProfileData, CREDENTIALS_ISSUER_VALIDATORS_KEYS.type)
     ) {
@@ -151,7 +152,7 @@ export class CredentialIssuerValidator {
    * @returns an object with two properties: "message" and "status". The "message" property contains a
    * string value, and the "status" property contains a boolean value.
    */
-  private validateIssuerProfileID(): { step: string, title: string, status: boolean, reason: string; } {
+  private validateIssuerProfileID(): ProcessStepStatus {
     if (
       isKeyPresent(this.issuerProfileData, CREDENTIALS_ISSUER_VALIDATORS_KEYS.id)
     ) {
@@ -159,12 +160,13 @@ export class CredentialIssuerValidator {
         this.issuerProfileData,
         CREDENTIALS_ISSUER_VALIDATORS_KEYS.id
       );
+
       if (
         idData &&
         idData ===
         getDataFromKey(
-          this.credential,
-          CREDENTIALS_ISSUER_VALIDATORS_KEYS.issuer
+          this.credential.issuer,
+          CREDENTIALS_ISSUER_VALIDATORS_KEYS.profile
         )
       ) {
         this.progressCallback(Stages.validateIssuerProfileID, Messages.ID_ISSUER_PROFILE_KEY_VALIDATE, true, Messages.ID_ISSUER_PROFILE_KEY_SUCCESS);
@@ -181,7 +183,7 @@ export class CredentialIssuerValidator {
    * @returns an object with two properties: "message" and "status". The "message" property is a string
    * and the "status" property is a boolean.
    */
-  private validateIssuerProfileName(): { step: string, title: string, status: boolean, reason: string; } {
+  private validateIssuerProfileName(): ProcessStepStatus {
     if (
       isKeyPresent(this.issuerProfileData, CREDENTIALS_ISSUER_VALIDATORS_KEYS.name)
     ) {
@@ -205,7 +207,7 @@ export class CredentialIssuerValidator {
    * @returns an object with two properties: "message" and "status". The "message" property is a string
    * and the "status" property is a boolean.
    */
-  private validateIssuerProfileEmail(): { step: string, title: string, status: boolean, reason: string; } {
+  private validateIssuerProfileEmail(): ProcessStepStatus {
     if (
       isKeyPresent(this.issuerProfileData, CREDENTIALS_ISSUER_VALIDATORS_KEYS.email)
     ) {
@@ -229,7 +231,7 @@ export class CredentialIssuerValidator {
    * @returns an object with two properties: "message" and "status". The "message" property contains a
    * string value, and the "status" property contains a boolean value.
    */
-  private validateIssuerProfileRevocationList(): { step: string, title: string, status: boolean, reason: string; } {
+  private validateIssuerProfileRevocationList(): ProcessStepStatus {
     if (
       isKeyPresent(
         this.issuerProfileData,
@@ -256,7 +258,7 @@ export class CredentialIssuerValidator {
    * @returns an object with two properties: "message" and "status". The "message" property contains a
    * string message, and the "status" property contains a boolean value.
    */
-  private validateIssuerProfilePublicKey(): { step: string, title: string, status: boolean, reason: string; } {
+  private validateIssuerProfilePublicKey(): ProcessStepStatus {
     if (
       isKeyPresent(
         this.issuerProfileData,
@@ -294,13 +296,15 @@ export class CredentialIssuerValidator {
    * This function validates a revocation list from an issuer profile.
    * @returns a Promise that resolves to an object with two properties: "message" and "status".
    */
-  private async validateRevocationListFromIssuerProfile(): Promise<{ step: string, title: string, status: boolean, reason: string; }> {
+  private async validateRevocationListFromIssuerProfile(): Promise<ProcessStepStatus> {
     if (this.issuerProfileData) {
+      const revocationList = getDataFromKey(
+        this.issuerProfileData,
+        CREDENTIALS_ISSUER_VALIDATORS_KEYS.revocationList
+      ) + `?v=${new Date().getTime()}`;
+
       this.revocationListData = await getDataFromAPI(
-        getDataFromKey(
-          this.issuerProfileData,
-          CREDENTIALS_ISSUER_VALIDATORS_KEYS.revocationList
-        )
+        revocationList
       );
       if (this.revocationListData) {
         this.progressCallback(Stages.validateRevocationListFromIssuerProfile, Messages.FETCHING_REVOCATION_LIST_ISSUER_PROFILE, true, Messages.FETCHING_REVOCATION_LIST_ISSUER_PROFILE_SUCCESS);
